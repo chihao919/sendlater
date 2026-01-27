@@ -1,0 +1,6 @@
+.env*
+!.env.example
+.vercel/
+__pycache__/
+*.pyc
+.DS_Store
