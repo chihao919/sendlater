@@ -23,6 +23,7 @@ LISTS = {
     'contacts': os.environ.get('TRELLO_CONTACTS_LIST_ID', '69773964fa6f1fe4ff71c21b'),
     'sent': os.environ.get('TRELLO_SENT_LIST_ID', '697742862d609f8dd32aff23'),
     'admins': os.environ.get('TRELLO_ADMINS_LIST_ID', '69775e7a019120099baed077'),
+    'groups': os.environ.get('TRELLO_GROUPS_LIST_ID', '697981e5eca68db4fe8c3586'),
 }
 
 # Init Gemini
@@ -94,6 +95,9 @@ def get_cards(list_name, marker):
 def get_contacts():
     return get_cards('contacts', '---CONTACT---')
 
+def get_groups():
+    return get_cards('groups', '---GROUP---')
+
 def get_admins():
     return [c.get('user_id') for c in get_cards('admins', '---CONTACT---') if c.get('user_id')]
 
@@ -104,24 +108,29 @@ def get_scheduled():
 # ===== Contact Management =====
 
 def find_contact(name):
-    """Find contact. Returns: dict (found), list (candidates), or None."""
+    """Find contact or group. Returns: dict (found), list (candidates), or None."""
     contacts = get_contacts()
-    if not contacts:
+    groups = get_groups()
+    all_targets = contacts + groups
+
+    if not all_targets:
         return None
 
     name_lower = name.lower().strip()
 
     # Exact/partial match
-    for c in contacts:
-        cn, ln = c.get('name', '').lower(), c.get('line_name', '').lower()
+    for c in all_targets:
+        cn = c.get('name', '').lower()
+        ln = c.get('line_name', c.get('group_name', '')).lower()
         if name_lower in (cn, ln) or name_lower in cn or name_lower in ln or cn in name_lower:
             return c
 
     # Fuzzy match
     candidates = []
-    for c in contacts:
-        score = max(fuzz.partial_ratio(name_lower, c.get('name', '').lower()),
-                    fuzz.partial_ratio(name_lower, c.get('line_name', '').lower()))
+    for c in all_targets:
+        cn = c.get('name', '').lower()
+        ln = c.get('line_name', c.get('group_name', '')).lower()
+        score = max(fuzz.partial_ratio(name_lower, cn), fuzz.partial_ratio(name_lower, ln))
         if score >= 50:
             candidates.append((score, c))
 
@@ -171,6 +180,21 @@ def auto_register(user_id):
     # Set custom field
     if card and card.get('id'):
         set_custom_field(card['id'], CUSTOM_FIELD_CONTACT, name)
+
+
+def auto_register_group(group_id):
+    """Auto register group when bot joins."""
+    groups = get_groups()
+    if any(g.get('group_id') == group_id for g in groups):
+        return
+
+    # Get group summary (name)
+    summary = line_api('GET', f'group/{group_id}/summary')
+    group_name = summary.get('groupName', '未命名群組') if summary else '未命名群組'
+
+    data = {'group_id': group_id, 'group_name': group_name, 'created_at': datetime.now(TW_TZ).isoformat()}
+    trello_api('POST', 'cards', idList=LISTS['groups'], name=f"👥 {group_name}",
+               desc=f"---GROUP---\n{json.dumps(data, ensure_ascii=False)}", pos='bottom')
 
 
 # ===== Actions =====
@@ -236,13 +260,16 @@ def action_schedule(parsed, user_id):
                           for c in contact] + [{'label': '❌ 取消', 'text': '取消'}]
         }
 
-    # Try AI if not found
+    # Try AI if not found (only for contacts, not groups)
     if not contact:
-        contact = find_contact_ai(recipient, get_contacts())
+        contact = find_contact_ai(recipient, get_contacts() + get_groups())
         ai_match = bool(contact)
 
     if not contact:
         return f"❌ 找不到「{recipient}」\n\n輸入「聯絡人」查看名單"
+
+    # Check if it's a group or contact
+    is_group = 'group_id' in contact
 
     # Create scheduled message
     send_time = datetime.now(TW_TZ).replace(hour=9, minute=0, second=0) + timedelta(days=1)
@@ -254,12 +281,14 @@ def action_schedule(parsed, user_id):
 
     data = {
         'recipient_name': contact.get('name', recipient),
-        'recipient_user_id': contact.get('user_id'),
+        'recipient_id': contact.get('group_id') if is_group else contact.get('user_id'),
+        'recipient_type': 'group' if is_group else 'user',
         'sender_user_id': user_id,
         'message': message,
         'created_at': datetime.now(TW_TZ).isoformat()
     }
-    card_name = f"📨 {contact.get('name', recipient)}：{message[:30]}"
+    icon = "👥" if is_group else "📨"
+    card_name = f"{icon} {contact.get('name', recipient)}：{message[:30]}"
     card = trello_api('POST', 'cards', idList=LISTS['scheduled'], name=card_name,
                       desc=f"---SCHEDULED_MESSAGE---\n{json.dumps(data, ensure_ascii=False)}",
                       due=send_time.isoformat(), pos='bottom')
@@ -269,8 +298,9 @@ def action_schedule(parsed, user_id):
         set_custom_field(card['id'], CUSTOM_FIELD_CONTACT, contact.get('name', recipient))
 
     ai_hint = "\n🤖 AI 判斷" if ai_match else ""
+    target_icon = "👥" if is_group else "👤"
     return {
-        'text': f"✅ 已排程{ai_hint}\n\n👤 {contact.get('name')}\n📝 {message}\n⏰ {send_time.strftime('%m/%d %H:%M')}",
+        'text': f"✅ 已排程{ai_hint}\n\n{target_icon} {contact.get('name')}\n📝 {message}\n⏰ {send_time.strftime('%m/%d %H:%M')}",
         'quick_reply': [{'label': '❌ 取消', 'text': '取消'}]
     }
 
@@ -335,12 +365,22 @@ def webhook():
 
     try:
         for event in json.loads(body).get('events', []):
-            if event.get('type') == 'message' and event.get('message', {}).get('type') == 'text':
+            event_type = event.get('type')
+            source = event.get('source', {})
+            source_type = source.get('type', '')
+
+            # Handle bot join group
+            if event_type == 'join' and source_type == 'group':
+                group_id = source.get('groupId', '')
+                if group_id:
+                    auto_register_group(group_id)
+                continue
+
+            # Handle messages
+            if event_type == 'message' and event.get('message', {}).get('type') == 'text':
                 token = event.get('replyToken')
                 text = event.get('message', {}).get('text', '')
-                source = event.get('source', {})
                 user_id = source.get('userId', '')
-                source_type = source.get('type', '')  # user, group, or room
 
                 # Auto register contact
                 if user_id:
@@ -374,7 +414,10 @@ def cron_send():
             sender = next((c for c in get_contacts() if c.get('user_id') == msg.get('sender_user_id')), {})
             sender_name = sender.get('name', '某人')
 
-            if push(msg['recipient_user_id'], f"📬 來自 {sender_name}：\n\n{msg['message']}"):
+            # Get recipient ID (support both old and new format)
+            recipient_id = msg.get('recipient_id') or msg.get('recipient_user_id')
+
+            if push(recipient_id, f"📬 來自 {sender_name}：\n\n{msg['message']}"):
                 sent += 1
                 trello_api('PUT', f"cards/{msg['card_id']}", idList=LISTS['sent'])
                 push(msg['sender_user_id'], f"✅ 已發送給 {msg['recipient_name']}\n\n📝 {msg['message']}")
