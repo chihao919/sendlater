@@ -154,13 +154,16 @@ def set_custom_field(card_id, field_id, value):
                  json={'value': {'text': value}}, timeout=10)
 
 def auto_register(user_id):
-    """Auto register user as contact."""
+    """Auto register user as contact. Skip if profile unavailable."""
     contacts = get_contacts()
     if any(c.get('user_id') == user_id for c in contacts):
         return
 
-    profile = line_api('GET', f'profile/{user_id}') or {}
-    name = profile.get('displayName', 'Unknown')
+    profile = line_api('GET', f'profile/{user_id}')
+    if not profile or not profile.get('displayName'):
+        return  # Skip if can't get profile (e.g. user not friend with bot)
+
+    name = profile['displayName']
     data = {'user_id': user_id, 'line_name': name, 'created_at': datetime.now(TW_TZ).isoformat()}
     card = trello_api('POST', 'cards', idList=LISTS['contacts'], name=name,
                       desc=f"---CONTACT---\n{json.dumps(data, ensure_ascii=False)}", pos='bottom')
