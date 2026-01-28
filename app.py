@@ -335,12 +335,16 @@ def webhook():
             if event.get('type') == 'message' and event.get('message', {}).get('type') == 'text':
                 token = event.get('replyToken')
                 text = event.get('message', {}).get('text', '')
-                user_id = event.get('source', {}).get('userId', '')
+                source = event.get('source', {})
+                user_id = source.get('userId', '')
+                source_type = source.get('type', '')  # user, group, or room
 
+                # Auto register contact
                 if user_id:
                     auto_register(user_id)
 
-                if token and text:
+                # Only reply in private chat (not in groups/rooms)
+                if source_type == 'user' and token and text:
                     response = process(text, user_id)
                     if isinstance(response, dict):
                         reply(token, response['text'], response.get('quick_reply'))
