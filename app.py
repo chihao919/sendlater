@@ -409,7 +409,9 @@ def webhook():
                         reply(token, response)
 
     except Exception as e:
-        print(f"Error: {e}")
+        import traceback
+        print(f"Error: {e}", flush=True)
+        traceback.print_exc()
 
     return 'OK'
 
