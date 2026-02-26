@@ -293,7 +293,8 @@ def action_schedule(parsed, user_id):
         'created_at': datetime.now(TW_TZ).isoformat()
     }
     icon = "👥" if is_group else "📨"
-    card_name = f"{icon} {contact.get('name', recipient)}：{message[:30]}"
+    display_name = contact.get('group_name', contact.get('name', recipient)) if is_group else contact.get('name', recipient)
+    card_name = f"{icon} {display_name}：{message[:30]}"
     card = trello_api('POST', 'cards', idList=LISTS['scheduled'], name=card_name,
                       desc=f"---SCHEDULED_MESSAGE---\n{json.dumps(data, ensure_ascii=False)}",
                       due=send_time.isoformat(), pos='bottom')
