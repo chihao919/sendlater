@@ -33,13 +33,20 @@ gemini = genai.GenerativeModel('gemini-2.0-flash') if GEMINI_KEY else None
 
 TW_TZ = timezone(timedelta(hours=8))
 
-PROMPT = """你是 SendLater 排程訊息助手。用 JSON 回覆：
-- schedule_message: {{"action":"schedule_message","recipient":"名字","message":"內容"}}
-- list_contacts: {{"action":"list_contacts"}}
-- list_scheduled: {{"action":"list_scheduled"}}
-- cancel_last: {{"action":"cancel_last"}}
-- chat: {{"action":"chat","reply":"回覆"}}
-只回覆 JSON。時間：{time}"""
+PROMPT = """你是 SendLater 排程訊息助手。只回覆一個扁平 JSON 物件（不要巢狀）。
+
+回覆格式範例：
+{{"action":"schedule_message","recipient":"小明","message":"記得開會","send_time":"2026-03-01T18:00:00+08:00"}}
+{{"action":"list_contacts"}}
+{{"action":"list_scheduled"}}
+{{"action":"cancel_last"}}
+{{"action":"chat","reply":"你好！"}}
+
+規則：
+- 只回覆一個 JSON 物件，不要 markdown 包裝
+- send_time 用 ISO 格式含時區 +08:00
+- 如果使用者沒指定時間，預設明天早上 9 點
+- 現在時間：{time}"""
 
 
 # ===== API Helpers =====
@@ -347,6 +354,13 @@ def process(text, user_id):
                 result = re.sub(r'^```(?:json)?\n?|\n?```$', '', result)
             parsed = json.loads(result)
             action = parsed.get('action')
+            # Handle nested JSON (e.g. {"schedule_message": {"action": ...}})
+            if not action:
+                for v in parsed.values():
+                    if isinstance(v, dict) and v.get('action'):
+                        parsed = v
+                        action = v['action']
+                        break
             print(f"Gemini parsed: action={action}", flush=True)
             if action in ACTIONS:
                 return ACTIONS[action](parsed, user_id)
