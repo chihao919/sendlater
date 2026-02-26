@@ -27,9 +27,9 @@ LISTS = {
 }
 
 # Init Gemini
-gemini = genai.GenerativeModel('gemini-2.0-flash') if GEMINI_KEY else None
 if GEMINI_KEY:
     genai.configure(api_key=GEMINI_KEY)
+gemini = genai.GenerativeModel('gemini-2.0-flash') if GEMINI_KEY else None
 
 TW_TZ = timezone(timedelta(hours=8))
 
@@ -342,14 +342,16 @@ def process(text, user_id):
         try:
             prompt = PROMPT.format(time=datetime.now(TW_TZ).strftime('%Y-%m-%d %H:%M')) + f"\n\n{text}"
             result = gemini.generate_content(prompt).text.strip()
+            print(f"Gemini raw: {result[:200]}", flush=True)
             if result.startswith('```'):
                 result = re.sub(r'^```(?:json)?\n?|\n?```$', '', result)
             parsed = json.loads(result)
             action = parsed.get('action')
+            print(f"Gemini parsed: action={action}", flush=True)
             if action in ACTIONS:
                 return ACTIONS[action](parsed, user_id)
-        except:
-            pass
+        except Exception as e:
+            print(f"Gemini error: {e}", flush=True)
 
     return action_help()
 
