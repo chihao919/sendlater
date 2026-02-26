@@ -184,17 +184,22 @@ def auto_register(user_id):
 
 def auto_register_group(group_id):
     """Auto register group when bot joins."""
+    print(f"auto_register_group called with: {group_id}", flush=True)
     groups = get_groups()
+    print(f"Existing groups: {len(groups)}", flush=True)
     if any(g.get('group_id') == group_id for g in groups):
+        print(f"Group already exists, skipping", flush=True)
         return
 
     # Get group summary (name)
     summary = line_api('GET', f'group/{group_id}/summary')
+    print(f"Group summary: {summary}", flush=True)
     group_name = summary.get('groupName', '未命名群組') if summary else '未命名群組'
 
     data = {'group_id': group_id, 'group_name': group_name, 'created_at': datetime.now(TW_TZ).isoformat()}
-    trello_api('POST', 'cards', idList=LISTS['groups'], name=f"👥 {group_name}",
+    result = trello_api('POST', 'cards', idList=LISTS['groups'], name=f"👥 {group_name}",
                desc=f"---GROUP---\n{json.dumps(data, ensure_ascii=False)}", pos='bottom')
+    print(f"Trello card created: {result}", flush=True)
 
 
 # ===== Actions =====
@@ -364,22 +369,31 @@ def webhook():
         abort(400)
 
     try:
-        for event in json.loads(body).get('events', []):
+        events = json.loads(body).get('events', [])
+        print(f"Received {len(events)} events: {[e.get('type') for e in events]}", flush=True)
+
+        for event in events:
             event_type = event.get('type')
             source = event.get('source', {})
             source_type = source.get('type', '')
+            print(f"Event: {event_type}, Source: {source_type}, Full: {json.dumps(source)}", flush=True)
 
             # Handle bot join group
             if event_type == 'join' and source_type == 'group':
                 group_id = source.get('groupId', '')
+                print(f"JOIN EVENT - Group ID: {group_id}", flush=True)
                 if group_id:
-                    auto_register_group(group_id)
+                    try:
+                        auto_register_group(group_id)
+                        print(f"Group registered successfully", flush=True)
+                    except Exception as e:
+                        print(f"Error registering group: {e}", flush=True)
                 continue
 
             # Handle messages
             if event_type == 'message' and event.get('message', {}).get('type') == 'text':
                 token = event.get('replyToken')
-                text = event.get('message', {}).get('text', '')
+                text = event.get('message', {}).get('text', '').strip()
                 user_id = source.get('userId', '')
 
                 # Auto register contact
@@ -393,6 +407,7 @@ def webhook():
                         reply(token, response['text'], response.get('quick_reply'))
                     else:
                         reply(token, response)
+
     except Exception as e:
         print(f"Error: {e}")
 
