@@ -137,4 +137,5 @@ QUICK_CMDS = {
     r'^(contacts|聯絡人|通訊錄)$': 'list_contacts',
     r'^(scheduled|排程|排程訊息)$': 'list_scheduled',
     r'^(cancel|取消|不對|錯了)$': 'cancel_last',
+    r'^(記帳|invoice)$': 'start_invoice',
 }

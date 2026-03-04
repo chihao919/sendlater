@@ -1,10 +1,13 @@
 """
 SendLater - Configuration and constants.
 """
+import json
 import os
 from datetime import timedelta, timezone
 
 import google.generativeai as genai
+import gspread
+from google.oauth2.service_account import Credentials
 
 # LINE
 LINE_TOKEN = os.environ.get('LINE_CHANNEL_ACCESS_TOKEN', '')
@@ -33,6 +36,19 @@ gemini_model = genai.GenerativeModel('gemini-2.0-flash') if GEMINI_KEY else None
 
 # Cron
 CRON_SECRET = os.environ.get('CRON_SECRET', '')
+
+# Google Sheets
+GOOGLE_SA_JSON = os.environ.get('GOOGLE_SERVICE_ACCOUNT_JSON', '')
+INVOICE_SHEET_ID = os.environ.get('INVOICE_SHEET_ID', '')
+
+gs_client = None
+if GOOGLE_SA_JSON:
+    sa_info = json.loads(GOOGLE_SA_JSON)
+    credentials = Credentials.from_service_account_info(
+        sa_info,
+        scopes=['https://www.googleapis.com/auth/spreadsheets']
+    )
+    gs_client = gspread.authorize(credentials)
 
 # Timezone
 TW_TZ = timezone(timedelta(hours=8))

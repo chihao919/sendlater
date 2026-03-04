@@ -8,7 +8,7 @@ import re
 import json
 from datetime import datetime, timedelta
 
-from config import TW_TZ
+from config import TW_TZ, gemini_model
 
 # Simplified prompt: AI only classifies intent and extracts raw fields
 PROMPT = """你是 SendLater 排程訊息助手。只回覆一個扁平 JSON 物件（不要巢狀）。
@@ -38,6 +38,10 @@ def _clean_ai_response(text):
         text = re.sub(r'^```(?:json)?\n?|\n?```$', '', text).strip()
 
     parsed = json.loads(text)
+
+    # If parsed is a list (e.g. invoice array), return as-is
+    if isinstance(parsed, list):
+        return parsed
 
     # Handle nested JSON (e.g. {"schedule_message": {"action": ...}})
     if not parsed.get('action'):
@@ -189,6 +193,72 @@ def _parse_time_expression(expression, now):
 
     return datetime(result_date.year, result_date.month, result_date.day,
                     result_hour, result_minute, tzinfo=TW_TZ)
+
+
+INVOICE_PROMPT = """Identify all invoices/receipts in this image.
+For each invoice, return a JSON array with objects containing these fields:
+{
+  "date": "YYYY/MM/DD",
+  "vendor": "store or supplier name",
+  "items": [
+    {"name": "item name", "quantity": 1, "unit_price": 100}
+  ],
+  "currency": "TWD",
+  "exchange_rate": null,
+  "subtotal_before_tax": 0,
+  "tax": 0,
+  "total": 0,
+  "department": "國內 or 國外",
+  "account_target": "vendor or payee name",
+  "category": ""
+}
+
+Rules:
+- If Taiwan invoice (統一發票, 收據, 收支單) → department = "國內", currency = "TWD"
+- If foreign receipt (Google, AWS, Cloud services, etc.) → department = "國外", detect currency
+- exchange_rate: extract if visible on document, otherwise null
+- category: leave empty string (will be classified later)
+- Return JSON array even for single invoice
+- Only return the JSON array, no markdown wrapping, no explanation
+- Extract raw data exactly as shown on the document"""
+
+
+def parse_invoice_image(image_bytes):
+    """Parse invoice image using Gemini Vision.
+
+    Args:
+        image_bytes: Raw image bytes from LINE Content API
+
+    Returns:
+        list of invoice dicts, or None on failure
+    """
+    if not gemini_model or not image_bytes:
+        print(f"Invoice parse: model={bool(gemini_model)}, bytes={len(image_bytes) if image_bytes else 0}", flush=True)
+        return None
+
+    try:
+        # Pass image as inline data (no Pillow dependency needed)
+        image_part = {"mime_type": "image/jpeg", "data": image_bytes}
+        print(f"Invoice parse: sending {len(image_bytes)} bytes to Gemini", flush=True)
+
+        result = gemini_model.generate_content([INVOICE_PROMPT, image_part]).text.strip()
+        print(f"Invoice Gemini raw: {result[:300]}", flush=True)
+
+        invoices = _clean_ai_response(result)
+        if isinstance(invoices, dict):
+            invoices = [invoices]
+
+        if not isinstance(invoices, list):
+            print(f"Invoice parse: unexpected type {type(invoices)}", flush=True)
+            return None
+
+        print(f"Invoice parse: found {len(invoices)} invoice(s)", flush=True)
+        return invoices
+    except Exception as e:
+        import traceback
+        print(f"Invoice parse error: {e}", flush=True)
+        traceback.print_exc()
+        return None
 
 
 def parse_message(text, current_time, model):
