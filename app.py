@@ -119,7 +119,7 @@ def handle_invoice_confirm(token, user_id, postback_data):
 
 @app.route("/")
 def index():
-    return "SendLater 📨"
+    return "SendLater 📨 v3"
 
 
 
