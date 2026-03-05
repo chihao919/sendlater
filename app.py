@@ -119,7 +119,25 @@ def handle_invoice_confirm(token, user_id, postback_data):
 
 @app.route("/")
 def index():
-    return "SendLater 📨 v3"
+    return "SendLater 📨 v4"
+
+
+@app.route("/debug/parse")
+def debug_parse():
+    """Temporary debug endpoint to test parsing."""
+    text = request.args.get('text', '')
+    if not text:
+        return jsonify({'error': 'no text param'})
+    now = datetime.now(TW_TZ)
+    parsed = parse_message(text, now, gemini_model)
+    from api import find_contact, get_contacts, get_groups
+    contact = find_contact(parsed.get('recipient', '')) if parsed and parsed.get('recipient') else None
+    return jsonify({
+        'input': text,
+        'gemini_parsed': parsed,
+        'contact_type': type(contact).__name__,
+        'contact': contact.get('name') if isinstance(contact, dict) else ([c.get('name') for c in contact] if isinstance(contact, list) else None),
+    })
 
 
 
