@@ -131,10 +131,17 @@ def debug_parse():
     now = datetime.now(TW_TZ)
     parsed = parse_message(text, now, gemini_model)
     from api import find_contact, get_contacts, get_groups
+    import os
+    contacts = get_contacts()
+    groups = get_groups()
     contact = find_contact(parsed.get('recipient', '')) if parsed and parsed.get('recipient') else None
     return jsonify({
         'input': text,
         'gemini_parsed': parsed,
+        'contacts_count': len(contacts),
+        'groups_count': len(groups),
+        'groups_list_id': os.environ.get('TRELLO_GROUPS_LIST_ID', 'NOT_SET'),
+        'groups_list_id_repr': repr(os.environ.get('TRELLO_GROUPS_LIST_ID', 'NOT_SET')),
         'contact_type': type(contact).__name__,
         'contact': contact.get('name') if isinstance(contact, dict) else ([c.get('name') for c in contact] if isinstance(contact, list) else None),
     })
