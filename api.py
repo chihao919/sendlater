@@ -285,7 +285,6 @@ def find_contact(name):
     contacts = get_contacts()
     groups = get_groups()
     all_targets = contacts + groups
-    print(f"find_contact({repr(name)}): {len(contacts)} contacts, {len(groups)} groups", flush=True)
 
     if not all_targets:
         return None
@@ -293,7 +292,6 @@ def find_contact(name):
     name_lower = name.lower().strip()
     # Also try without spaces (e.g. "W P A" → "wpa")
     name_nospace = name_lower.replace(' ', '')
-    print(f"find_contact: name_lower={repr(name_lower)}, name_nospace={repr(name_nospace)}", flush=True)
 
     # Exact/partial match
     for c in all_targets:
@@ -303,7 +301,6 @@ def find_contact(name):
         ln_nospace = ln.replace(' ', '')
         if (name_lower in (cn, ln) or name_lower in cn or name_lower in ln or cn in name_lower
                 or name_nospace in (cn_nospace, ln_nospace) or name_nospace in cn_nospace or name_nospace in ln_nospace):
-            print(f"find_contact: exact match → {c.get('name')} (cn={repr(cn)}, ln={repr(ln)})", flush=True)
             return c
 
     # Fuzzy match (use both original and no-space versions)
