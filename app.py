@@ -119,7 +119,9 @@ def handle_invoice_confirm(token, user_id, postback_data):
 
 @app.route("/")
 def index():
-    return "SendLater 📨"
+    from api import get_contacts, get_groups
+    c, g = len(get_contacts()), len(get_groups())
+    return f"SendLater 📨 | {c} contacts, {g} groups"
 
 
 
